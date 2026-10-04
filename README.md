@@ -16,3 +16,7 @@ No install and no runtime download: it uses .NET Framework 4.x, which ships with
 build.cmd          rem -> AppShelf.exe
 build.cmd test     rem -> AppShelfTest.exe <out folder>: console self-test that saves screenshots and sample shortcuts
 ```
+
+## License
+
+[MIT](LICENSE)
