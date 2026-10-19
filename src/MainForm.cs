@@ -25,15 +25,28 @@ namespace AppShelf
         bool loading;
         string toast;
         bool toastWarn;
-        string hotPart;     // "seg0".."seg2", "refresh", "clear"
+        string hotPart;     // "seg0".."seg2", "refresh", "settings", "clear"
+        readonly NotifyIcon tray = new NotifyIcon();
+        readonly ContextMenuStrip trayMenu = MenuRenderer.Make();
+        bool allowShow, quitting;
+        int loadedIconPx;
         public bool Loaded { get; private set; }
 
-        public MainForm()
+        // Posted by a second launch to bring this window up.
+        public static readonly int WM_SHOWAPP = Native.RegisterWindowMessage("AppShelf.ShowWindow");
+
+        Settings S { get { return Settings.Current; } }
+
+        public MainForm() : this(false) { }
+
+        public MainForm(bool startInTray)
         {
+            allowShow = !startInTray;
             Text = "AppShelf";
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(Ui.S(940), Ui.S(640));
             MinimumSize = new Size(Ui.S(520), Ui.S(380));
+            RestoreSavedBounds();
             KeyPreview = true;
             DoubleBuffered = true;
             SetStyle(ControlStyles.ResizeRedraw, true);
@@ -83,20 +96,145 @@ namespace AppShelf
             toastTimer.Interval = 4000;
             toastTimer.Tick += delegate { toastTimer.Stop(); toast = null; Invalidate(Footer); };
 
+            tray.Text = "AppShelf";
+            tray.Icon = Icon;
+            tray.ContextMenuStrip = trayMenu;
+            var trayOpen = MenuRenderer.Item("Open AppShelf", Theme.GOpen, delegate { ShowFromTray(); });
+            trayOpen.Font = fBold;
+            trayMenu.Items.AddRange(new ToolStripItem[]
+            {
+                trayOpen,
+                MenuRenderer.Item("Settings", Theme.GSettings, delegate { ShowFromTray(); ShowSettings(); }),
+                new ToolStripSeparator(),
+                MenuRenderer.Item("Quit", Theme.GClose, delegate { Quit(); }),
+            });
+            trayMenu.Opening += delegate { MenuRenderer.Refresh(trayMenu); };
+            tray.MouseClick += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Left) return;
+                if (Visible && WindowState != FormWindowState.Minimized) HideToTray();
+                else ShowFromTray();
+            };
+
             Theme.Changed += OnThemeChanged;
             ApplyColors();
-            Shown += delegate { grid.Focus(); Reload(); };
+            ApplySettings();
+            Shown += delegate { grid.Focus(); };
         }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             Theme.ApplyChrome(Handle);
+            BeginInvoke((Action)Reload);     // also runs when starting hidden in the tray, so opening is instant
+        }
+
+        // ---------- tray & window state ----------
+
+        // Keeps the window hidden when started in the tray (the handle still gets created).
+        protected override void SetVisibleCore(bool value)
+        {
+            if (!allowShow && value)
+            {
+                if (!IsHandleCreated) CreateHandle();
+                value = false;
+            }
+            base.SetVisibleCore(value);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_SHOWAPP && WM_SHOWAPP != 0) { ShowFromTray(); return; }
+            base.WndProc(ref m);
+        }
+
+        public void ShowFromTray()
+        {
+            allowShow = true;
+            Show();
+            if (WindowState == FormWindowState.Minimized) WindowState = S.Maximized ? FormWindowState.Maximized : FormWindowState.Normal;
+            Activate();
+            Native.SetForegroundWindow(Handle);
+            UpdateTray();
+        }
+
+        void HideToTray()
+        {
+            SaveBounds();
+            Hide();
+            UpdateTray();
+        }
+
+        void Quit()
+        {
+            quitting = true;
+            Close();
+        }
+
+        void UpdateTray()
+        {
+            tray.Visible = S.UsesTray || !Visible;
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (WindowState == FormWindowState.Minimized && S.MinimizeToTray && Visible) HideToTray();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!quitting && (e.CloseReason == CloseReason.UserClosing || e.CloseReason == CloseReason.None) && S.CloseToTray)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
+            SaveBounds();
+            tray.Visible = false;
+            base.OnFormClosing(e);
+        }
+
+        void RestoreSavedBounds()
+        {
+            var b = S.Bounds;
+            if (b.IsEmpty || !Screen.AllScreens.Any(sc => sc.WorkingArea.IntersectsWith(new Rectangle(b.X + 40, b.Y + 10, b.Width - 80, 30)))) return;
+            StartPosition = FormStartPosition.Manual;
+            Bounds = new Rectangle(b.X, b.Y, Math.Max(b.Width, MinimumSize.Width), Math.Max(b.Height, MinimumSize.Height));
+            if (S.Maximized) WindowState = FormWindowState.Maximized;
+        }
+
+        void SaveBounds()
+        {
+            if (!IsHandleCreated || !allowShow) return;
+            S.Maximized = WindowState == FormWindowState.Maximized;
+            S.Bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            S.Save();
+        }
+
+        // ---------- settings ----------
+
+        void ShowSettings()
+        {
+            using (var f = new SettingsForm(ApplySettings, () => grid.ActualColumns)) f.ShowDialog(this);
+        }
+
+        public int GridColumns { get { return grid.ActualColumns; } }
+
+        public void ApplySettings()
+        {
+            Theme.Use(S.DarkOverride);
+            grid.Columns = S.Columns;
+            grid.IconPx = S.IconPixels;
+            UpdateTray();
+            if (Loaded && loadedIconPx != S.IconPixels) Reload();
+            else if (Loaded) Fill(true);
         }
 
         void OnThemeChanged()
         {
             if (IsDisposed) return;
+            if (!IsHandleCreated) { ApplyColors(); return; }
             BeginInvoke((Action)(() =>
             {
                 ApplyColors();
@@ -120,7 +258,8 @@ namespace AppShelf
         Rectangle Header { get { return new Rectangle(0, 0, ClientSize.Width, HeaderHeight); } }
         Rectangle Footer { get { return new Rectangle(0, ClientSize.Height - FooterHeight, ClientSize.Width, FooterHeight); } }
 
-        Rectangle RefreshButton { get { return new Rectangle(ClientSize.Width - Ui.S(24) - Ui.S(38), Ui.S(20), Ui.S(38), Ui.S(38)); } }
+        Rectangle SettingsButton { get { return new Rectangle(ClientSize.Width - Ui.S(24) - Ui.S(38), Ui.S(20), Ui.S(38), Ui.S(38)); } }
+        Rectangle RefreshButton { get { var r = SettingsButton; r.Offset(-Ui.S(46), 0); return r; } }
 
         Rectangle SearchPill
         {
@@ -201,6 +340,10 @@ namespace AppShelf
             Theme.FillRound(g, hotPart == "refresh" ? Theme.SurfaceHot : Theme.Surface, rb, rb.Height / 2f);
             Theme.StrokeRound(g, Theme.Line, rb, rb.Height / 2f);
             TextRenderer.DrawText(g, Theme.GRefresh, fIcon, rb, loading ? Theme.Faint : Theme.Fg, Theme.Center);
+            var sb = SettingsButton;
+            Theme.FillRound(g, hotPart == "settings" ? Theme.SurfaceHot : Theme.Surface, sb, sb.Height / 2f);
+            Theme.StrokeRound(g, Theme.Line, sb, sb.Height / 2f);
+            TextRenderer.DrawText(g, Theme.GSettings, fIcon, sb, Theme.Fg, Theme.Center);
 
             // filter segments
             var segs = Segments();
@@ -249,6 +392,7 @@ namespace AppShelf
         string PartAt(Point p)
         {
             if (RefreshButton.Contains(p)) return "refresh";
+            if (SettingsButton.Contains(p)) return "settings";
             if (search.Text.Length > 0 && ClearButton.Contains(p)) return "clear";
             if (p.Y < HeaderHeight)
             {
@@ -268,6 +412,7 @@ namespace AppShelf
                 Cursor = part != null ? Cursors.Hand : SearchPill.Contains(e.Location) ? Cursors.IBeam : Cursors.Default;
                 Invalidate(Header);
                 if (part == "refresh") tip.Show("Refresh (F5)", this, RefreshButton.Left - Ui.S(30), RefreshButton.Bottom + Ui.S(4), 2000);
+                else if (part == "settings") tip.Show("Settings (Ctrl+,)", this, SettingsButton.Left - Ui.S(60), SettingsButton.Bottom + Ui.S(4), 2000);
                 else tip.Hide(this);
             }
         }
@@ -284,6 +429,7 @@ namespace AppShelf
             if (e.Button != MouseButtons.Left) return;
             var part = PartAt(e.Location);
             if (part == "refresh") Reload();
+            else if (part == "settings") ShowSettings();
             else if (part == "clear") { search.Clear(); search.Focus(); }
             else if (part != null && part.StartsWith("seg"))
             {
@@ -298,6 +444,7 @@ namespace AppShelf
         {
             if (e.KeyCode == Keys.F && e.Control) { search.Focus(); search.SelectAll(); e.Handled = true; }
             else if (e.KeyCode == Keys.F5) { Reload(); e.Handled = true; }
+            else if (e.KeyCode == Keys.Oemcomma && e.Control) { ShowSettings(); e.Handled = true; }
             base.OnKeyDown(e);
         }
 
@@ -363,7 +510,8 @@ namespace AppShelf
             grid.EmptyText = "Loading apps\u2026";
             grid.Progress = 0;
             Invalidate();
-            int iconSize = Ui.S(48);
+            loadedIconPx = S.IconPixels;
+            int iconSize = Ui.S(loadedIconPx);
             var t = new Thread(() =>
             {
                 List<AppEntry> result;
@@ -411,7 +559,9 @@ namespace AppShelf
             Loaded = true;
         }
 
-        void Fill()
+        void Fill() { Fill(false); }
+
+        void Fill(bool keepScroll)
         {
             if (loading) return;
             string q = search.Text.Trim();
@@ -424,7 +574,9 @@ namespace AppShelf
             grid.EmptyGlyph = Theme.GSearch;
             grid.EmptyText = q.Length > 0 ? "No apps match \u201C" + q + "\u201D"
                            : filter == Filter.Store ? "No Store apps" : filter == Filter.Desktop ? "No desktop apps" : "No apps found";
-            grid.SetItems(list, q.Length == 0);
+            int keep = grid.ScrollOffset;
+            grid.SetItems(list, q.Length == 0 && S.Sections);
+            if (keepScroll) grid.ScrollOffset = keep;
             Invalidate(Header);
         }
 
@@ -433,6 +585,7 @@ namespace AppShelf
             if (disposing)
             {
                 Theme.Changed -= OnThemeChanged;
+                tray.Dispose();
                 toastTimer.Dispose();
                 tip.Dispose();
                 foreach (var a in apps) if (a.Icon != null) a.Icon.Dispose();

@@ -1,9 +1,12 @@
 # AppShelf
 
-An ~80 KB Windows app that shows every app in Start > All apps (desktop and Store apps) as an icon grid.
+A ~95 KB Windows app that shows every app in Start > All apps (desktop and Store apps) as an icon grid.
 
 - Follows the Windows light/dark setting; A-Z sections, filters for All / Desktop / Store apps
 - Search box (Ctrl+F, or just start typing; Esc clears), F5 refreshes
+- Settings (gear button or Ctrl+,): start with Windows (opens quietly in the tray), minimize or close to the tray,
+  apps per row, icon size, A-Z sections, light/dark theme. Saved in `%APPDATA%\AppShelf\settings.ini`; the window
+  size and position are remembered too. Opening AppShelf again brings up the running window
 - Double-click an app (or press Enter) for details: path, version, publisher, install date, size, uninstall command,
   package info. Click any row to copy it
 - Right-click (Ctrl/Shift multi-select works) or the details window: Open, Open file location, Add shortcut to desktop

@@ -33,9 +33,12 @@ namespace AppShelf
         public event Action<AppEntry> ItemActivated;
         public event Action SelectionChanged;
 
-        int TileW { get { return Ui.S(112); } }
-        int TileH { get { return Ui.S(118); } }
-        int IconSize { get { return Ui.S(48); } }
+        public int Columns;             // 0 = as many as fit
+        public int IconPx = 48;         // logical icon size
+
+        int TileW { get { return Ui.S(IconPx + 64); } }
+        int TileH { get { return Ui.S(IconPx + 70); } }
+        int IconSize { get { return Ui.S(IconPx); } }
         int PadX { get { return Ui.S(16); } }
 
         public TileView()
@@ -47,6 +50,15 @@ namespace AppShelf
         }
 
         // ---------- data ----------
+
+        public int ScrollOffset
+        {
+            get { return scroll; }
+            set { scroll = value; ClampScroll(); Invalidate(); }
+        }
+
+        // Columns in the current layout (what "Auto" works out to).
+        public int ActualColumns { get; private set; }
 
         public void SetItems(List<AppEntry> list, bool group)
         {
@@ -102,10 +114,13 @@ namespace AppShelf
             headers.Clear();
             rects = new Rectangle[items.Count];
             int avail = Math.Max(TileW, ClientSize.Width - 2 * PadX - Ui.S(6));
-            // as many columns as fit at ~136 px each, never narrower than TileW; tiles stretch to fill the row
-            int cols = Math.Max(1, (avail + Ui.S(136) - 1) / Ui.S(136));
+            // as many columns as fit at about TileW + 24 px each, never narrower than TileW; tiles stretch to fill the row
+            int target = TileW + Ui.S(24);
+            int cols = Math.Max(1, (avail + target - 1) / target);
             if (cols > 1 && avail / cols < TileW) cols--;
+            if (Columns > 0) cols = Math.Min(Columns, Math.Max(1, avail / (IconSize + Ui.S(16))));   // never squeeze icons
             int w = avail / cols;
+            ActualColumns = cols;
             int y = Ui.S(4), col = 0;
 
             // '#' (digits, symbols, other scripts) first, then A-Z, each in the incoming (sorted) order.

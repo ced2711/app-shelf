@@ -106,7 +106,7 @@ namespace AppShelf
         // Segoe Fluent Icons / MDL2 code points.
         public const string GSearch = "\uE721", GRefresh = "\uE72C", GOpen = "\uE8A7", GFolder = "\uE838",
                             GDesktop = "\uE7F4", GInfo = "\uE946", GCopy = "\uE8C8", GCheck = "\uE73E",
-                            GClose = "\uE711", GWarn = "\uE7BA";
+                            GClose = "\uE711", GWarn = "\uE7BA", GSettings = "\uE713";
 
         // ---------- drawing ----------
 
@@ -148,6 +148,21 @@ namespace AppShelf
             using (var p = Round(new RectangleF(r.X + h, r.Y + h, r.Width - width, r.Height - width), radius))
             using (var pen = new Pen(c, width))
                 g.DrawPath(pen, p);
+            g.SmoothingMode = old;
+        }
+
+        // An on/off switch like extra-dim's: accent track when on, knob slides right.
+        public static void Switch(Graphics g, Rectangle r, bool on, bool hot)
+        {
+            Color off = Dark ? Line : Faint;
+            Color track = on ? (hot ? Mix(Accent, Fg, 0.12f) : Accent) : (hot ? Mix(off, Fg, 0.2f) : off);
+            FillRound(g, track, r, r.Height / 2f);
+            float pad = r.Height * 0.18f, k = r.Height - 2 * pad;
+            float x = on ? r.Right - pad - k : r.X + pad;
+            var old = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var b = new SolidBrush(on ? AccentFg : Dark ? Fg : Surface))
+                g.FillEllipse(b, x, r.Y + pad, k, k);
             g.SmoothingMode = old;
         }
 

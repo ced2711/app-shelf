@@ -172,6 +172,15 @@ namespace AppShelf
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 
+        [DllImport("user32.dll")]
+        public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int RegisterWindowMessage(string name);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+
         public const int EM_SETCUEBANNER = 0x1501;
     }
 
@@ -674,10 +683,24 @@ namespace AppShelf
             Application.SetCompatibleTextRenderingDefault(false);
             using (var g = Graphics.FromHwnd(IntPtr.Zero)) Ui.Scale = g.DpiX / 96f;
             if (args.Length == 2 && args[0] == "--write-icon") { Logo.WriteIco(args[1]); return; }
+            Theme.Use(Settings.Current.DarkOverride);
 #if SELFTEST
             SelfTest.Run(args);
 #else
-            Application.Run(new MainForm());
+            bool tray = args.Length > 0 && args[0] == Autostart.TrayArg;
+            bool first;
+            using (var mutex = new Mutex(true, @"Local\AppShelf.SingleInstance", out first))
+            {
+                if (!first)
+                {
+                    // Already running: bring its window up (unless this is the quiet start at sign-in).
+                    if (!tray) Native.PostMessage(new IntPtr(0xffff), MainForm.WM_SHOWAPP, IntPtr.Zero, IntPtr.Zero);
+                    return;
+                }
+                if (Autostart.Get()) Autostart.Set(true);   // keep the entry pointing at this exe if it moved
+                Application.Run(new MainForm(tray));
+                GC.KeepAlive(mutex);
+            }
 #endif
         }
     }
