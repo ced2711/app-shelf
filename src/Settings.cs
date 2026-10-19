@@ -73,7 +73,8 @@ namespace AppShelf
             return s;
         }
 
-        public void Save()
+        // Returns false if the file could not be written.
+        public bool Save()
         {
             try
             {
@@ -92,10 +93,16 @@ namespace AppShelf
                     sb.AppendLine("height=" + Bounds.Height);
                 }
                 sb.AppendLine("maximized=" + (Maximized ? 1 : 0));
+                // Write a temp file first and swap it in, so a crash or power cut mid-write never leaves
+                // a half-written or empty settings file behind (which would reset everything to defaults).
                 Directory.CreateDirectory(Path.GetDirectoryName(FilePath));
-                File.WriteAllText(FilePath, sb.ToString());
+                string tmp = FilePath + ".tmp";
+                File.WriteAllText(tmp, sb.ToString());
+                if (File.Exists(FilePath)) File.Replace(tmp, FilePath, null);
+                else File.Move(tmp, FilePath);
+                return true;
             }
-            catch { }
+            catch { return false; }
         }
 
         public static int Clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }

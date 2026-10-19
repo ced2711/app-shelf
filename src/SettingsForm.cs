@@ -34,6 +34,7 @@ namespace AppShelf
         readonly List<Card> cards = new List<Card>();
         readonly Font fTitle, fBody, fHint, fSection, fSmall, fIcon;
         string hot;     // "<row>:<part>"
+        bool saveFailed;
 
         Settings S { get { return Settings.Current; } }
 
@@ -145,7 +146,8 @@ namespace AppShelf
             var g = e.Graphics;
             g.Clear(Theme.Bg);
             TextRenderer.DrawText(g, "Settings", fTitle, new Rectangle(Ui.S(24), Ui.S(22), Ui.S(300), Ui.S(36)), Theme.Fg, Theme.Left);
-            TextRenderer.DrawText(g, "Changes apply right away", fHint, new Rectangle(Ui.S(24), Ui.S(54), Ui.S(300), Ui.S(18)), Theme.Sub, Theme.Left);
+            TextRenderer.DrawText(g, saveFailed ? "Could not save to " + Settings.FilePath : "Changes apply right away and are remembered",
+                                  fHint, new Rectangle(Ui.S(24), Ui.S(54), ClientSize.Width - Ui.S(48), Ui.S(18)), saveFailed ? Theme.Warn : Theme.Sub, Theme.Left);
 
             foreach (var c in cards)
             {
@@ -268,7 +270,7 @@ namespace AppShelf
                 case Kind.Stepper: r.Step(bits[1] == "0" ? -1 : 1); break;
                 case Kind.Segments: r.SetI(int.Parse(bits[1])); break;
             }
-            S.Save();
+            saveFailed = !S.Save();
             changed();
             Invalidate();
         }

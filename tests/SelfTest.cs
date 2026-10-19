@@ -77,6 +77,8 @@ namespace AppShelf
             var back = Settings.Load();
             Check(back.Columns == 7 && back.IconSize == 2 && !back.Sections && back.Theme == 2 && back.MinimizeToTray &&
                   back.CloseToTray && back.Bounds == st.Bounds && back.Maximized, "settings survive save and load");
+            st.Columns = 4;
+            Check(st.Save() && Settings.Load().Columns == 4 && !File.Exists(Settings.PathOverride + ".tmp"), "saving over an existing file replaces it cleanly");
             File.WriteAllText(Settings.PathOverride, "columns=99\niconSize=-4\ntheme=x\n");
             back = Settings.Load();
             Check(back.Columns == Settings.MaxColumns && back.IconSize == 0 && back.Theme == 0, "bad settings values are clamped");
